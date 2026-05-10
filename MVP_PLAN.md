@@ -123,17 +123,17 @@ Generate the full 9-section PRISM-style intelligence dossier for accounts worth 
 - Source appendix.
 - Full-mode gating in batch runs.
 
-### Dossier sections
+### Dossier sections (titles match PRISM-v2 verbatim)
 
 1. Executive Summary
 2. Subject Profile
 3. Organizational Intelligence Assessment
-4. Key Personnel and Buying Committee Map
+4. Key Personnel — Buying Committee Map
 5. Signal Timeline
-6. Why Now Hypothesis
+6. Why Now — Hypothesis
 7. Recommended Play
-8. Collection Gaps and Discovery Questions
-9. Appendix: Raw Signals and Sources
+8. Collection Gaps & Discovery Questions
+9. Appendix — Raw Signals & Sources
 
 ### Acceptance criteria
 
@@ -216,36 +216,43 @@ Examples:
 
 ## Data model
 
-The MVP should use lightweight Pydantic models:
+The MVP uses lightweight Pydantic models that mirror PRISM-v2's field names so artifacts can move between systems:
 
-- `AccountProfile`
+- `AccountProfile` (with optional firmographics: `funding_stage`, `growth_rate`, `tech_stack`)
 - `SourceItem`
-- `Signal`
-- `Scorecard`
-- `EvidencePack`
+- `Signal` — fields: `signal_type` (one of 19 PRISM-v2 types), `category`, `description`, `source`, `detected_date`, `decay_weight`, `confidence` (`extracted | interpolated | generated`), `contact_name`
+- `Scorecard` — with `icp_breakdown`, `readiness_breakdown`, `timing_breakdown` and stored composite `weights`
+- `EvidencePack` / `EvidenceItem`
 - `Brief`
-- `Dossier`
+- `Dossier` (carries optional structured views: `scorecard`, `signals`, `sources`, `profile`)
 - `GiftDocument`
 - `RunSnapshot`
-- `Digest`
+- `Digest` — with `score_snapshot`, severity-grouped `entries`, typed `new_signals` / `decayed_signals` / `removed_signals` / `changed_signals` deltas, `action_update`, `llm_narrative`
 
 ## Scoring model
 
-Initial composite score:
+Composite score (matches PRISM-v2 so outputs stay interchangeable):
 
 ```text
-Composite = ICP Fit 35% + Buying Readiness 45% + Timing 20%
+Composite = ICP Fit 25% + Buying Readiness 50% + Timing 25%
 ```
 
-This shifts weight slightly away from deep LLM readiness compared with PRISM-v2 because the MVP should work well in no-LLM and quick modes.
+Buying readiness still scores in no-LLM mode by aggregating deterministic pain, leadership, competitive, and timing signals — the dominant weight is preserved across modes.
 
-### Suggested tier thresholds
+### ICP fit subcomponents (matches PRISM-v2)
 
 ```text
-Tier 1: >= 75
-Tier 2: >= 55
-Tier 3: >= 35
-Not qualified: < 35
+ICP Fit = funding_stage 25% + growth_rate 20% + tech_stack 20%
+        + headcount 15% + industry 10% + geo 10%
+```
+
+### Tier thresholds (matches PRISM-v2)
+
+```text
+Tier 1: >= 70
+Tier 2: >= 45
+Tier 3: >= 25
+Not qualified: < 25
 ```
 
 ### Confidence adjustment

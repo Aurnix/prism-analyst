@@ -61,7 +61,7 @@ def batch_analyze(
             sources = collect_sources(profile)
             signals = extract_signals(sources)
             signals = apply_decay(signals)
-            card = score_account(profile.slug, profile.name, sources, signals)
+            card = score_account(profile.slug, profile.name, sources, signals, profile=profile)
             scorecards.append(card)
 
             snapshot_md = render_snapshot(profile, card, signals, sources)
@@ -82,7 +82,7 @@ def batch_analyze(
             sources = collect_sources(profile)
             signals = extract_signals(sources)
             signals = apply_decay(signals)
-            card = score_account(profile.slug, profile.name, sources, signals)
+            card = score_account(profile.slug, profile.name, sources, signals, profile=profile)
             scorecards.append(card)
 
     scorecard_csv = render_scorecard_csv(scorecards)

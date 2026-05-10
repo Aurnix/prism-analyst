@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from ..config import ICP_WEIGHTS, READINESS_WEIGHTS, TIMING_WEIGHTS
 from ..models import AccountProfile, Scorecard, Signal, SignalCategory, SourceItem
+from ..signals.decay import decay_bar
 
 
 def render_snapshot(
@@ -23,23 +25,34 @@ def render_snapshot(
         lines.append(f"- **Industry:** {profile.industry}")
     if profile.headcount:
         lines.append(f"- **Headcount:** {profile.headcount}")
-    if profile.stage:
-        lines.append(f"- **Stage:** {profile.stage}")
+    if profile.funding_stage or profile.stage:
+        lines.append(f"- **Funding stage:** {profile.funding_stage or profile.stage}")
     if profile.location:
         lines.append(f"- **Location:** {profile.location}")
+    if profile.tech_stack:
+        lines.append(f"- **Tech stack:** {', '.join(profile.tech_stack)}")
     if profile.description:
         lines.append(f"- **Description:** {profile.description[:200]}")
     lines.append("")
 
     lines.append("## Score")
     lines.append("")
-    lines.append(f"- **Composite:** {scorecard.composite}")
-    lines.append(f"- **Tier:** {scorecard.tier.value}")
-    lines.append(f"- **ICP Fit:** {scorecard.icp_fit}")
-    lines.append(f"- **Buying Readiness:** {scorecard.buying_readiness}")
-    lines.append(f"- **Timing:** {scorecard.timing}")
-    lines.append(f"- **Confidence:** {scorecard.confidence.value}")
-    lines.append(f"- **Confidence Reason:** {scorecard.confidence_reason}")
+    lines.append(f"- **Composite:** {scorecard.composite}  ({scorecard.tier.value})")
+    lines.append(
+        f"  ├── ICP Fit ............ {scorecard.icp_fit:>5.1f}  "
+        f"× {scorecard.weights.get('icp_fit', 0):.2f}  {decay_bar(scorecard.icp_fit/100)}"
+    )
+    lines.append(
+        f"  ├── Buying Readiness ... {scorecard.buying_readiness:>5.1f}  "
+        f"× {scorecard.weights.get('buying_readiness', 0):.2f}  "
+        f"{decay_bar(scorecard.buying_readiness/100)}"
+    )
+    lines.append(
+        f"  └── Timing ............. {scorecard.timing:>5.1f}  "
+        f"× {scorecard.weights.get('timing', 0):.2f}  "
+        f"{decay_bar(scorecard.timing/100)}"
+    )
+    lines.append(f"- **Confidence:** {scorecard.confidence.value} — {scorecard.confidence_reason}")
     lines.append("")
 
     lines.append("## Signals")
@@ -50,8 +63,11 @@ def render_snapshot(
 
     for cat, sigs in sorted(by_category.items(), key=lambda x: x[0].value):
         lines.append(f"### {cat.value.title()}")
-        for s in sorted(sigs, key=lambda x: x.strength, reverse=True):
-            lines.append(f"- [{s.strength:.2f}] {s.text[:150]}")
+        for s in sorted(sigs, key=lambda x: x.effective_weight, reverse=True):
+            lines.append(
+                f"- [{s.signal_type.value}] {s.text[:140]}  "
+                f"_(weight {s.effective_weight:.2f}, {s.confidence.value})_"
+            )
         lines.append("")
 
     lines.append("## Sources")
