@@ -2,16 +2,21 @@
 
 from prism_analyst.models import (
     AccountProfile,
+    DeltaType,
     Digest,
+    DigestEntry,
+    DigestSeverity,
     Dossier,
     DossierSection,
     GiftDocument,
+    ScoreSnapshot,
     Scorecard,
     Signal,
-    SignalCategory,
     SignalDelta,
+    SignalType,
     SourceItem,
     SourceType,
+    Tier,
 )
 from prism_analyst.render.csv import render_scorecard_csv
 from prism_analyst.render.digest import render_digest
@@ -20,52 +25,103 @@ from prism_analyst.render.gift import render_gift, render_redaction_report
 from prism_analyst.render.snapshot import render_snapshot
 
 
-def test_render_snapshot():
+def test_render_snapshot_includes_score_tree_and_signal_type():
     profile = AccountProfile(name="Test Co", slug="test-co", domain="test.com")
-    card = Scorecard(account_slug="test-co", account_name="Test Co", composite=65)
+    card = Scorecard(
+        account_slug="test-co", account_name="Test Co",
+        icp_fit=60, buying_readiness=70, timing=50,
+    )
     card.compute_composite()
     signals = [
-        Signal(category=SignalCategory.HIRING, text="Hiring engineers", source_id="s1")
+        Signal(signal_type=SignalType.JOB_POSTING_TECHNICAL,
+               text="Hiring senior engineers", source_id="s1"),
     ]
     sources = [
-        SourceItem(source_type=SourceType.WEBSITE, title="Test.com", url="https://test.com")
+        SourceItem(source_type=SourceType.WEBSITE, title="Test.com", url="https://test.com"),
     ]
     md = render_snapshot(profile, card, signals, sources)
     assert "# Account Snapshot: Test Co" in md
-    assert "test.com" in md
-    assert "Hiring" in md
+    assert "Composite" in md
+    assert "ICP Fit" in md
+    assert "job_posting_technical" in md
 
 
-def test_render_dossier():
+def test_render_dossier_emits_v2_section_titles_and_score_tree():
+    card = Scorecard(
+        account_slug="test-co", account_name="Test Co",
+        icp_fit=80, buying_readiness=70, timing=60,
+    )
+    card.compute_composite()
     dossier = Dossier(
         account_slug="test-co",
+        scorecard=card,
         sections=[
-            DossierSection(title="Executive Summary", content="Summary text here."),
-            DossierSection(title="Subject Profile", content="Profile text."),
+            DossierSection(title="Executive Summary", content="Headline summary."),
+            DossierSection(title="Subject Profile", content="Profile body."),
         ],
     )
     md = render_dossier(dossier)
-    assert "Intelligence Dossier" in md
-    assert "Executive Summary" in md
-    assert "Summary text here." in md
+    assert "PRISM INTELLIGENCE DOSSIER" in md
+    assert "1. Executive Summary" in md
+    assert "4. Key Personnel — Buying Committee Map" in md
+    assert "6. Why Now — Hypothesis" in md
+    assert "9. Appendix — Raw Signals & Sources" in md
+    assert "Composite Score" in md
 
 
-def test_render_digest():
+def test_render_dossier_signal_timeline_uses_decay_bars():
+    card = Scorecard(account_slug="t", account_name="T")
+    card.compute_composite()
+    sig = Signal(
+        signal_type=SignalType.FUNDING_ROUND,
+        text="raised series b",
+        source_id="s1",
+        decay_weight=0.8,
+    )
+    dossier = Dossier(
+        account_slug="t",
+        scorecard=card,
+        signals=[sig],
+        sections=[],
+    )
+    md = render_dossier(dossier)
+    assert "funding_round" in md
+    # decay bar uses block characters
+    assert "█" in md or "▓" in md
+
+
+def test_render_digest_severity_groups_and_typed_deltas():
     digest = Digest(
         account_slug="test-co",
         previous_run_id="2026-01-01",
         current_run_id="2026-01-08",
-        new_signals=[
-            SignalDelta(category="hiring", description="New engineering roles", change_type="new")
+        score_snapshot=ScoreSnapshot(
+            composite=72.0, previous_composite=58.0, delta=14.0,
+            tier=Tier.TIER_1, icp_fit=70, buying_readiness=75, timing=70,
+        ),
+        entries=[
+            DigestEntry(severity=DigestSeverity.CRITICAL, headline="New funding round"),
+            DigestEntry(severity=DigestSeverity.UPDATE, headline="Minor update"),
         ],
-        score_change=12.5,
+        new_signals=[
+            SignalDelta(
+                signal_type=SignalType.FUNDING_ROUND,
+                category="funding",
+                description="raised $20M Series B",
+                delta_type=DeltaType.NEW,
+            ),
+        ],
+        score_change=14.0,
         is_material=True,
-        summary="1 new signal; score up 12.5",
+        action_update="Promote to active outreach.",
     )
     md = render_digest(digest)
-    assert "Weekly Digest" in md
-    assert "Material changes detected" in md
-    assert "New Signals" in md
+    assert "PRISM SIGNAL DIGEST" in md
+    assert "Material: yes" in md
+    assert "Score Snapshot" in md
+    assert "Critical" in md
+    assert "+ [funding_round]" in md
+    assert "►" in md  # action update bullet
 
 
 def test_render_gift():
@@ -100,5 +156,5 @@ def test_render_scorecard_csv():
     assert "alpha" in csv_text
     assert "beta" in csv_text
     lines = csv_text.strip().split("\n")
-    assert len(lines) == 3  # header + 2 rows
-    assert lines[1].startswith("alpha")  # sorted by composite desc
+    assert len(lines) == 3
+    assert lines[1].startswith("alpha")

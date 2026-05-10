@@ -29,12 +29,13 @@ def _load_prompt(name: str) -> str:
 def _format_evidence(pack: EvidencePack) -> str:
     lines: list[str] = []
     for i, item in enumerate(pack.items, 1):
-        cats = ", ".join(c.value for c in item.signal_types)
+        types = ", ".join(t.value for t in item.signal_types)
         lines.append(
             f"[{i}] {item.title}\n"
             f"    Source: {item.source_type.value} | {item.url or 'N/A'}\n"
             f"    Date: {item.date or 'Unknown'}\n"
-            f"    Signals: {cats}\n"
+            f"    Signal types: {types}\n"
+            f"    Confidence: {item.confidence.value}\n"
             f"    Relevance: {item.relevance_reason}\n"
             f"    Excerpt: {item.excerpt}\n"
         )
@@ -111,12 +112,12 @@ def run_full_dossier(pack: EvidencePack, account_name: str) -> Dossier:
         "Executive Summary",
         "Subject Profile",
         "Organizational Intelligence Assessment",
-        "Key Personnel and Buying Committee Map",
+        "Key Personnel — Buying Committee Map",
         "Signal Timeline",
-        "Why Now Hypothesis",
+        "Why Now — Hypothesis",
         "Recommended Play",
-        "Collection Gaps and Discovery Questions",
-        "Appendix: Raw Signals and Sources",
+        "Collection Gaps & Discovery Questions",
+        "Appendix — Raw Signals & Sources",
     ]
 
     sections: list[DossierSection] = []
@@ -171,10 +172,20 @@ def run_gift_doc(pack: EvidencePack, account_name: str, dossier_text: str) -> Gi
 def _extract_section(text: str, heading: str) -> str:
     import re
 
-    pattern = rf"#+\s*{re.escape(heading)}\s*\n(.*?)(?=\n#+\s|\Z)"
-    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
+    # Try the exact heading first, then a normalized variant that tolerates
+    # different punctuation (em-dash vs hyphen, ampersand vs "and").
+    candidates = [heading]
+    normalized = (
+        heading.replace("—", "-").replace("&", "and").replace(" - ", " ")
+    )
+    if normalized != heading:
+        candidates.append(normalized)
+
+    for candidate in candidates:
+        pattern = rf"#+\s*{re.escape(candidate)}\s*\n(.*?)(?=\n#+\s|\Z)"
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
     return ""
 
 

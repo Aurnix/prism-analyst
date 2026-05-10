@@ -79,7 +79,7 @@ def analyze_account(
     signals = apply_decay(signals)
     click_echo(f"  Found {len(signals)} signals")
 
-    scorecard = score_account(profile.slug, profile.name, sources, signals)
+    scorecard = score_account(profile.slug, profile.name, sources, signals, profile=profile)
     click_echo(f"  Score: {scorecard.composite} ({scorecard.tier.value}, {scorecard.confidence.value} confidence)")
 
     # Save workspace state
@@ -114,9 +114,16 @@ def analyze_account(
         ):
             click_echo("Generating full dossier...")
             dossier = run_full_dossier(pack, profile.name)
+            # Attach structured views so the renderer can produce score-tree,
+            # decay-bar timeline, and taxonomy blocks alongside the LLM text.
+            dossier.scorecard = scorecard
+            dossier.signals = signals
+            dossier.sources = sources
+            dossier.profile = profile
             dossier_md = render_dossier(dossier)
             workspace.write_text(out_dir / "dossier.md", dossier_md)
             workspace.write_text(run_dir / "dossier.md", dossier_md)
+            workspace.write_json(run_dir / "dossier.json", dossier.model_dump(mode="json"))
             outputs["dossier"] = str(out_dir / "dossier.md")
 
     click_echo(f"Done. Outputs in {out_dir}")

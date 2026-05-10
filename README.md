@@ -137,17 +137,39 @@ Use it to create:
 
 ## Dossier structure
 
-Full dossiers use a 9-section format:
+Full dossiers use the same 9-section format as PRISM-v2 (titles match verbatim so downstream tools can consume either system's output):
 
 1. Executive Summary
 2. Subject Profile
 3. Organizational Intelligence Assessment
-4. Key Personnel and Buying Committee Map
+4. Key Personnel — Buying Committee Map
 5. Signal Timeline
-6. Why Now Hypothesis
+6. Why Now — Hypothesis
 7. Recommended Play
-8. Collection Gaps and Discovery Questions
-9. Appendix: Raw Signals and Sources
+8. Collection Gaps & Discovery Questions
+9. Appendix — Raw Signals & Sources
+
+The renderer adds three structural blocks alongside the LLM section content:
+
+- **Score tree** in the Executive Summary — composite, ICP fit, buying readiness, timing, each with its weight and a decay-bar visualization (`█▓▒░`).
+- **ICP / Readiness / Timing breakdowns** — each subcomponent with its weight, mirroring PRISM-v2's scoring tables.
+- **Decay-weighted Signal Timeline** — chronological signals tagged with their specific PRISM signal type and confidence label.
+
+## PRISM-v2 alignment
+
+PRISM Analyst produces the same artifact types as PRISM-v2 so outputs are interchangeable:
+
+- **19 signal types** match the PRISM-v2 taxonomy verbatim: `funding_round`, `new_executive_finance`, `new_executive_other`, `champion_departed`, `job_posting_finance`, `job_posting_technical`, `job_posting_urgent`, `tech_stack_change`, `migration_signal`, `blog_post_pain`, `linkedin_post_pain`, `earnings_mention`, `press_release_relevant`, `pricing_page_visit`, `content_engagement`, `g2_research_activity`, `competitor_evaluation`, `competitor_contract_renewal`, `glassdoor_trend`.
+- **Per-signal decay** uses the same `(peak_days, half_life_days, max_relevance_days)` table as v2.
+- **Signal model fields** match: `signal_type`, `description`, `source`, `detected_date`, `decay_weight`, `confidence` (`extracted | interpolated | generated`), `contact_name`.
+- **Composite scoring weights** match v2: ICP Fit 25% + Buying Readiness 50% + Timing 25%.
+- **ICP fit subcomponents** match v2 weights: funding stage 25%, growth rate 20%, tech stack 20%, headcount 15%, industry 10%, geo 10%.
+- **Tier thresholds** match v2: Tier 1 ≥ 70, Tier 2 ≥ 45, Tier 3 ≥ 25.
+- **Digest deltas** use the v2 vocabulary (`new`, `decayed`, `removed`, `changed`) and the same severity entries (`critical`, `warning`, `update`).
+- **Play matrix** uses the same play identifiers (`educational_urgency`, `direct_solution`, `accelerated_close`, `competitive_wedge`, `competitive_education`, `long_nurture`, `educational_nurture`).
+- **Gift documents** apply the same redaction/reframing rules.
+
+PRISM Analyst stays lighter than v2 in scope (no FastAPI, no DB, no required enrichment vendors) but the artifacts it emits — scorecards, snapshots, dossiers, digests, gift documents — are schema-compatible.
 
 ## Cost-control strategy
 

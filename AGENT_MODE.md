@@ -163,7 +163,8 @@ Build a compact evidence pack from the strongest available signals. The evidence
 - URL
 - date
 - excerpt
-- detected signal types
+- detected signal types (specific PRISM-v2 types, e.g. `funding_round`, `migration_signal`, `linkedin_post_pain`)
+- per-signal confidence label (`extracted | interpolated | generated`)
 - relevance reason
 
 ### Step four: quick brief
@@ -217,11 +218,13 @@ Agent Mode should favor practical GTM outputs:
 
 All reports should include:
 
-- Confidence level
+- Confidence level (`high | medium | low` at the account level; `extracted | interpolated | generated` per signal)
 - Source list
 - Collection gaps
 - Counter-signals
 - Recommended next action
+
+The full dossier additionally includes a score-tree showing the composite breakdown with weights, ICP/readiness/timing subcomponents, and a decay-weighted signal timeline — same shape as PRISM-v2.
 
 ## Human-in-the-loop rules
 

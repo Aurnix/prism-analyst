@@ -1,82 +1,127 @@
-"""Deterministic signal extraction from source text."""
+"""Deterministic signal extraction from source text.
+
+Each pattern emits a specific PRISM-v2 SignalType, which auto-derives its
+coarse SignalCategory via SIGNAL_TYPE_TO_CATEGORY. Strength is the base
+relevance before temporal decay; per-source/source-type heuristics narrow
+which patterns can fire (e.g. JOB_POSTING_* only on jobs sources).
+"""
 
 from __future__ import annotations
 
 import re
-from ..models import Signal, SignalCategory, SourceItem
+
+from ..models import (
+    Signal,
+    SignalConfidence,
+    SignalType,
+    SourceItem,
+    SourceType,
+)
 
 
-_PATTERNS: list[tuple[SignalCategory, list[str], float]] = [
-    # Hiring signals
-    (SignalCategory.HIRING, [
-        r"(?i)\b(?:hiring|we.re hiring|join our team|open role|open position|now hiring)\b",
-        r"(?i)\b(?:head of|vp of|director of|senior|staff|principal|lead)\s+\w+",
-        r"(?i)\b(?:engineer|developer|architect|designer|product manager|data scientist)\b",
-    ], 0.6),
+# (signal_type, regex_patterns, base_strength, allowed_source_types_or_None)
+_PATTERNS: list[tuple[SignalType, list[str], float, set[SourceType] | None]] = [
+    # --- Funding / financial events ---
+    (SignalType.FUNDING_ROUND, [
+        r"(?i)\b(?:series\s+[a-f]|seed round|pre-?seed)\b",
+        r"(?i)\braised\s+\$\d+[\d,.]*\s*(?:m|mm|million|b|billion)\b",
+        r"(?i)\b(?:closed|announced|secures?)\s+(?:a\s+)?\$\d+[\d,.]*\s*(?:m|mm|million|b|billion)\b",
+        r"(?i)\b(?:funding round|venture round|growth round)\b",
+    ], 0.9, None),
 
-    # Funding signals
-    (SignalCategory.FUNDING, [
-        r"(?i)\b(?:series [a-f]|seed round|funding|raised|investment|venture|capital)\b",
-        r"(?i)\$\d+[\d,.]*\s*(?:m|mm|million|b|billion)\b",
-        r"(?i)\b(?:ipo|pre-ipo|going public|public offering)\b",
-    ], 0.8),
+    (SignalType.EARNINGS_MENTION, [
+        r"(?i)\b(?:q[1-4]\s+(?:earnings|results)|fiscal\s+(?:year|quarter)|earnings call)\b",
+        r"(?i)\b(?:revenue\s+(?:grew|increased|declined)|guidance|10-?k|10-?q)\b",
+    ], 0.6, None),
 
-    # Technology signals
-    (SignalCategory.TECHNOLOGY, [
-        r"(?i)\b(?:api|sdk|platform|infrastructure|cloud|aws|gcp|azure|kubernetes)\b",
-        r"(?i)\b(?:migration|migrating|moderniz|refactor|re-?architect|re-?platform)\b",
-        r"(?i)\b(?:tech stack|microservices|monolith|legacy|technical debt)\b",
-        r"(?i)\b(?:ai|machine learning|ml|llm|genai|generative ai|automation)\b",
-    ], 0.5),
+    # --- Leadership / champion ---
+    (SignalType.NEW_EXECUTIVE_FINANCE, [
+        r"(?i)\b(?:new|appointed|named|hired)\s+(?:cfo|chief financial officer|vp of finance|head of finance)\b",
+    ], 0.85, None),
 
-    # Expansion signals
-    (SignalCategory.EXPANSION, [
-        r"(?i)\b(?:new market|expansion|expanding|launch|launching|entered|entering)\b",
-        r"(?i)\b(?:new office|new region|international|global expansion|new country)\b",
-        r"(?i)\b(?:new product|product line|product launch|ga|general availability)\b",
-    ], 0.7),
+    (SignalType.NEW_EXECUTIVE_OTHER, [
+        r"(?i)\b(?:new|appointed|named|hired)\s+(?:ceo|cto|coo|cro|cmo|cio|chief\s+\w+\s+officer)\b",
+        r"(?i)\b(?:joined as|named as)\s+(?:vp|svp|head of|director of)\b",
+    ], 0.7, None),
 
-    # Leadership signals
-    (SignalCategory.LEADERSHIP, [
-        r"(?i)\b(?:new ceo|new cto|new cfo|new coo|new cro|new cmo|new vp)\b",
-        r"(?i)\b(?:appointed|promoted|joined as|named as|announces? .{0,20} as)\b",
-        r"(?i)\b(?:board of directors|advisory board|new hire|executive team)\b",
-    ], 0.7),
+    (SignalType.CHAMPION_DEPARTED, [
+        r"(?i)\b(?:departed|left|resigned|stepped down)\b.{0,40}\b(?:cfo|cto|ceo|vp|head of|director)\b",
+        r"(?i)\b(?:formerly|previously)\s+(?:at|with)\b",
+    ], 0.7, None),
 
-    # Product signals
-    (SignalCategory.PRODUCT, [
-        r"(?i)\b(?:new feature|release|version \d|v\d|update|upgrade|beta|preview)\b",
-        r"(?i)\b(?:integration|partnership|partner|ecosystem|marketplace)\b",
-        r"(?i)\b(?:pricing|plan|tier|enterprise|free trial|freemium)\b",
-    ], 0.5),
+    # --- Hiring / job postings (jobs source preferred) ---
+    (SignalType.JOB_POSTING_FINANCE, [
+        r"(?i)\b(?:financial analyst|controller|accountant|finance manager|fp&a|treasury|revenue operations)\b",
+    ], 0.6, {SourceType.JOBS, SourceType.WEBSITE, SourceType.NEWS}),
 
-    # Pain signals
-    (SignalCategory.PAIN, [
-        r"(?i)\b(?:challenge|struggling|pain point|bottleneck|inefficien|manual process)\b",
-        r"(?i)\b(?:compliance|regulation|audit|security breach|incident|outage)\b",
-        r"(?i)\b(?:cost reduction|budget cut|layoff|restructur|downsize)\b",
+    (SignalType.JOB_POSTING_TECHNICAL, [
+        r"(?i)\b(?:senior|staff|principal|lead)\s+(?:engineer|developer|architect|sre|platform|infrastructure)\b",
+        r"(?i)\b(?:engineering manager|director of engineering|head of platform)\b",
+    ], 0.55, {SourceType.JOBS, SourceType.WEBSITE, SourceType.NEWS}),
+
+    (SignalType.JOB_POSTING_URGENT, [
+        r"(?i)\b(?:urgent|immediate hire|asap|backfill|critical role|fast.?track)\b",
+        r"(?i)\b(?:we.?re hiring|now hiring|join our team)\b",
+    ], 0.65, None),
+
+    # --- Tech stack / migrations ---
+    (SignalType.MIGRATION_SIGNAL, [
+        r"(?i)\b(?:migrating?|migration|moving from|switching from|re-?platforming|rip and replace)\b",
+        r"(?i)\b(?:replat(?:form|forming)|modernization|digital transformation)\b",
+    ], 0.75, None),
+
+    (SignalType.TECH_STACK_CHANGE, [
+        r"(?i)\b(?:adopted|deployed|standardized on|rolled out)\s+(?:kubernetes|aws|gcp|azure|snowflake|databricks)\b",
+        r"(?i)\b(?:tech stack|microservices|monolith|legacy|technical debt|re-?architect)\b",
+        r"(?i)\b(?:llm|genai|generative ai|machine learning platform)\b",
+    ], 0.55, None),
+
+    # --- Content pain signals ---
+    (SignalType.LINKEDIN_POST_PAIN, [
+        r"(?i)\b(?:linkedin|li post|posted on linkedin)\b.{0,80}\b(?:struggling|challenge|frustrat|painful|broken|hard time)\b",
+    ], 0.65, None),
+
+    (SignalType.BLOG_POST_PAIN, [
+        r"(?i)\b(?:struggling|challenge|pain point|bottleneck|inefficien|manual process|broken)\b",
         r"(?i)\b(?:technical debt|legacy system|outdated|end of life|eol|sunset)\b",
-    ], 0.6),
+        r"(?i)\b(?:compliance|audit|security breach|incident|outage|downtime)\b",
+    ], 0.6, {SourceType.WEBSITE, SourceType.NEWS, SourceType.MANUAL}),
 
-    # Timing signals
-    (SignalCategory.TIMING, [
-        r"(?i)\b(?:q[1-4]|fiscal year|end of year|budget cycle|planning cycle|renew)\b",
-        r"(?i)\b(?:this quarter|next quarter|this year|by end of|deadline|timeline)\b",
-        r"(?i)\b(?:ramp|scale|growing fast|rapid growth|hockey stick|hyper-?growth)\b",
-    ], 0.6),
+    # --- News / press ---
+    (SignalType.PRESS_RELEASE_RELEVANT, [
+        r"(?i)\b(?:announces?|launching|launches|today announced|press release)\b",
+        r"(?i)\b(?:partnership|integration|acquired|acquisition|merged with)\b",
+        r"(?i)\b(?:new market|expansion|expanding|new office|new region|international)\b",
+    ], 0.55, {SourceType.NEWS, SourceType.WEBSITE}),
 
-    # Competitive signals
-    (SignalCategory.COMPETITIVE, [
-        r"(?i)\b(?:switch|switching|migrate from|moving from|replacing|alternative to)\b",
-        r"(?i)\b(?:compared to|versus|vs\.|competitor|competitive)\b",
-        r"(?i)\b(?:rip and replace|vendor evaluation|rfp|request for proposal)\b",
-    ], 0.7),
+    # --- Engagement / intent ---
+    (SignalType.PRICING_PAGE_VISIT, [
+        r"(?i)\b(?:pricing page|enterprise pricing|request a quote|talk to sales)\b",
+    ], 0.5, None),
 
-    # Operational signals
-    (SignalCategory.OPERATIONAL, [
-        r"(?i)\b(?:process improvement|workflow|automation|efficiency|operational)\b",
-        r"(?i)\b(?:digital transformation|modernization|cloud native|devops|sre)\b",
-    ], 0.5),
+    (SignalType.CONTENT_ENGAGEMENT, [
+        r"(?i)\b(?:downloaded|registered for|attended|webinar|whitepaper|case study)\b",
+    ], 0.5, None),
+
+    (SignalType.G2_RESEARCH_ACTIVITY, [
+        r"(?i)\b(?:g2|trustradius|capterra|softwarereviews|gartner peer insights)\b",
+    ], 0.6, None),
+
+    # --- Competitive ---
+    (SignalType.COMPETITOR_EVALUATION, [
+        r"(?i)\b(?:vendor evaluation|rfp|request for proposal|short.?list|bake.?off)\b",
+        r"(?i)\b(?:compared to|versus|vs\.|alternative to|switching from)\b",
+    ], 0.7, None),
+
+    (SignalType.COMPETITOR_CONTRACT_RENEWAL, [
+        r"(?i)\b(?:contract renewal|renewal cycle|up for renewal|renew(?:s|ing)?\s+(?:in|with))\b",
+    ], 0.65, None),
+
+    # --- Glassdoor / org health ---
+    (SignalType.GLASSDOOR_TREND, [
+        r"(?i)\b(?:glassdoor|employee reviews?|culture rating|attrition|turnover)\b",
+        r"(?i)\b(?:layoff|restructur|downsize|reorg|reduction in force|rif)\b",
+    ], 0.55, None),
 ]
 
 
@@ -87,14 +132,17 @@ def extract_signals(sources: list[SourceItem]) -> list[Signal]:
     for source in sources:
         text = f"{source.title}\n{source.content}"
 
-        for category, patterns, base_strength in _PATTERNS:
+        for signal_type, patterns, base_strength, allowed in _PATTERNS:
+            if allowed is not None and source.source_type not in allowed:
+                continue
+
             for pattern in patterns:
                 matches = re.findall(pattern, text)
                 if not matches:
                     continue
 
                 match_text = matches[0] if isinstance(matches[0], str) else matches[0][0]
-                dedup_key = f"{category}:{match_text.lower().strip()[:40]}:{source.id}"
+                dedup_key = f"{signal_type}:{match_text.lower().strip()[:40]}:{source.id}"
                 if dedup_key in seen:
                     continue
                 seen.add(dedup_key)
@@ -103,10 +151,13 @@ def extract_signals(sources: list[SourceItem]) -> list[Signal]:
                 strength = min(base_strength + 0.1 * (len(matches) - 1), 1.0)
 
                 signals.append(Signal(
-                    category=category,
+                    signal_type=signal_type,
                     text=context,
+                    description=context,
                     source_id=source.id,
+                    source=source.url or source.title,
                     strength=strength,
+                    confidence=SignalConfidence.EXTRACTED,
                 ))
 
     return signals

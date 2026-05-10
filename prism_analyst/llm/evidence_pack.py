@@ -8,6 +8,7 @@ from ..models import (
     EvidencePack,
     Signal,
     SignalCategory,
+    SignalType,
     SourceItem,
 )
 
@@ -28,14 +29,17 @@ def build_evidence_pack(
         if source is None:
             continue
 
-        signal_types = [signal.category]
+        signal_types: list[SignalType] = [signal.signal_type]
+        categories: list[SignalCategory] = [signal.category] if signal.category else []
         sibling_signals = [
             s for s in signals
             if s.source_id == signal.source_id and s.id != signal.id
         ]
         for sib in sibling_signals:
-            if sib.category not in signal_types:
-                signal_types.append(sib.category)
+            if sib.signal_type not in signal_types:
+                signal_types.append(sib.signal_type)
+            if sib.category and sib.category not in categories:
+                categories.append(sib.category)
 
         item = EvidenceItem(
             source_id=source.id,
@@ -45,11 +49,13 @@ def build_evidence_pack(
             date=source.metadata.get("published", source.fetched_at.isoformat()),
             excerpt=signal.text[:400],
             signal_types=signal_types,
+            categories=categories,
             relevance_reason=_relevance_reason(signal),
-            strength=signal.strength,
+            strength=signal.effective_weight,
+            confidence=signal.confidence,
         )
 
-        rank = signal.strength + 0.1 * len(signal_types)
+        rank = signal.effective_weight + 0.1 * len(signal_types)
         scored_items.append((rank, item))
 
     scored_items.sort(key=lambda x: x[0], reverse=True)
