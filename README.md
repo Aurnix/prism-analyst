@@ -49,10 +49,10 @@ Analyze a CSV of accounts without LLM calls:
 prism-analyst batch examples/accounts.csv --mode no-llm
 ```
 
-Generate full dossiers only for accounts above a score threshold:
+Analyze a CSV with gated LLM analysis (threshold configured via `PRISM_ANALYST_FULL_THRESHOLD`):
 
 ```bash
-prism-analyst batch examples/accounts.csv --mode gated --full-threshold 70
+prism-analyst batch examples/accounts.csv --mode gated
 ```
 
 Generate a prospect-safe gift document:
@@ -65,6 +65,12 @@ Compare the latest run against the previous run:
 
 ```bash
 prism-analyst digest velocitypay
+```
+
+Resolve a company name or domain into a normalized profile:
+
+```bash
+prism-analyst resolve stripe.com
 ```
 
 ## Modes
@@ -81,10 +87,8 @@ Use it to:
 
 Outputs:
 
-- Account snapshot
-- Scorecard CSV
-- Raw signal inventory
-- Collection gaps
+- Account snapshot (includes profile, score tree, signal inventory by category, and source list)
+- Scorecard CSV (batch mode only)
 
 ### Quick mode
 
@@ -98,11 +102,8 @@ Use it to:
 
 Outputs:
 
-- Quick account brief
-- Buying-readiness score
-- Why-now hypothesis
-- Outreach angle
-- Confidence assessment
+- Account snapshot (same as no-llm mode)
+- Quick brief (LLM-generated markdown covering buying stage, why-now hypothesis, outreach angle, and confidence assessment)
 
 ### Full mode
 
@@ -117,12 +118,9 @@ Use it when:
 
 Outputs:
 
-- 9-section intelligence dossier
-- Signal timeline
-- Buying committee notes where available
-- Per-person messaging recommendations
-- Discovery questions
-- Appendix of sources and raw signals
+- Account snapshot
+- Quick brief
+- Full 9-section dossier (includes score tree, signal timeline with decay bars, buying committee map, per-person messaging, discovery questions, and raw signals appendix)
 
 ### Gift mode
 
@@ -134,6 +132,11 @@ Use it to create:
 - Operational benchmark briefs
 - Discovery-call leave-behinds
 - "We noticed this pattern" documents
+
+Outputs:
+
+- Gift document (prospect-safe markdown)
+- Redaction report (list of items removed or reframed)
 
 ## Dossier structure
 
@@ -228,12 +231,17 @@ prism-analyst/
       monitor.py
       gift.py
 
+  tests/
+    test_models.py
+    test_renderers.py
+    test_signals.py
+    test_website.py
+    test_workspace.py
+
   examples/
     accounts.csv
-    demo_inputs/
 
-  output/
-  cache/
+  pyproject.toml
   README.md
   AGENT_MODE.md
   MVP_PLAN.md
@@ -252,27 +260,47 @@ PRISM Analyst stores state in regular files so Computer can inspect, reuse, and 
       signals.json
       runs/
         2026-05-10T15-30-00/
-          evidence_pack.json
           scorecard.json
+          evidence_pack.json
           quick_brief.md
           dossier.md
-          gift.md
+          dossier.json
+  cache/
+    <key>.json
+
+output/
+  accounts/
+    velocitypay/
+      account_snapshot.md
+      quick_brief.md
+      dossier.md
+      gift.md
+      redaction_report.md
+      redaction_report.json
+      digest.md
+      digest.json
+  batch_scorecard.csv
 ```
+
+The `.prism/` directory holds internal workspace state (cached sources, signals, per-run artifacts). The `output/` directory holds the final rendered documents intended for consumption.
 
 ## Configuration
 
-Configuration should live in `prism_analyst/config.py` and optionally `.env`:
+Configuration lives in `prism_analyst/config.py` and can be overridden via `.env` or environment variables:
 
 ```text
 ANTHROPIC_API_KEY=
-PRISM_ANALYST_MODEL=
+PRISM_ANALYST_MODEL=claude-sonnet-4-6
 PRISM_ANALYST_MAX_EVIDENCE_ITEMS=10
 PRISM_ANALYST_FULL_THRESHOLD=70
 PRISM_ANALYST_QUICK_THRESHOLD=45
 PRISM_ANALYST_CACHE_TTL_DAYS=14
+PRISM_ANALYST_WORKSPACE=.prism
+PRISM_ANALYST_OUTPUT=output
+PRISM_ANALYST_HTTP_TIMEOUT=15
 ```
 
-All weights and thresholds should be centralized and editable without changing workflow logic.
+All weights and thresholds are centralized in `config.py` and editable without changing workflow logic.
 
 ## Optional integrations
 
